@@ -67,7 +67,10 @@ class MainActivity : FragmentActivity() {
             val authViewModel: AuthViewModel = hiltViewModel()
             val vehicleViewModel: VehicleViewModel = hiltViewModel()
             val settingsViewModel: SettingsViewModel = hiltViewModel()
-
+            val obdViewModel: com.bluedeck.viewmodel.ObdViewModel = hiltViewModel()
+            LaunchedEffect(Unit) {
+                obdViewModel.handleAutoStartup()
+            }
             val isLoggedIn by authViewModel.isLoggedIn.collectAsStateWithLifecycle()
             val loginUiState by authViewModel.loginUiState.collectAsStateWithLifecycle()
             val otpPending by authViewModel.otpPending.collectAsStateWithLifecycle()

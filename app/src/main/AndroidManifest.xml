@@ -163,18 +163,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Walk-away lock Bluetooth disconnect and timer receivers -->
-        <receiver
-            android:name=".automation.VehicleConnectionReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
-                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
-                <action android:name="android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED" />
-                <action android:name="android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED" />
-            </intent-filter>
-        </receiver>
-
+        <!-- Walk-away lock timer receiver and monitor service -->
         <receiver
             android:name=".automation.WalkAwayLockAlarmReceiver"
             android:exported="false" />

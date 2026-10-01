@@ -1,6 +1,7 @@
 package com.bluedeck.data.obd.transport
 
 import android.Manifest
+import android.Manifest.permission.BLUETOOTH_SCAN
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
@@ -50,9 +51,19 @@ class BluetoothClassicObdTransport @Inject constructor(
         }
         val device = adapter.getRemoteDevice(address)
         val connectedSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-        adapter.cancelDiscovery()
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(
+                context,
+                BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            adapter.cancelDiscovery()
+        }
         try {
+            android.util.Log.d("BlueDeckOBD", "Starting RFCOMM connection")
             connectedSocket.connect()
+            android.util.Log.d("BlueDeckOBD", "RFCOMM connection succeeded")
         } catch (e: SecurityException) {
             throw IllegalStateException(
                 "Bluetooth permission is required to connect to the OBD adapter",
@@ -83,13 +94,35 @@ class BluetoothClassicObdTransport @Inject constructor(
     override suspend fun readLine(timeoutMs: Long): String? = withContext(Dispatchers.IO) {
         val r = reader ?: return@withContext null
         val deadline = System.currentTimeMillis() + timeoutMs
+        val response = StringBuilder()
+
         while (System.currentTimeMillis() < deadline) {
             if (r.ready()) {
-                return@withContext r.readLine()?.trim()
+                val ch = r.read()
+                if (ch == -1) {
+                    break
+                }
+
+                val c = ch.toChar()
+
+                if (c == '>') {
+                    response.append(c)
+                    return@withContext response.toString().trim()
+                }
+
+                if (c == '\r' || c == '\n') {
+                    if (response.isNotEmpty()) {
+                        return@withContext response.toString().trim()
+                    }
+                } else {
+                    response.append(c)
+                }
+            } else {
+                Thread.sleep(25)
             }
-            Thread.sleep(25)
         }
-        null
+
+        response.toString().trim().ifEmpty { null }
     }
 
     private fun ensureBluetoothConnectPermission() {

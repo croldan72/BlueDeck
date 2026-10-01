@@ -70,6 +70,23 @@ class ObdViewModel @Inject constructor(
         _adapterConfig.value = obdRepository.loadAdapterConfig()
     }
 
+    fun handleAutoStartup() = viewModelScope.launch {
+        val config = obdRepository.loadAdapterConfig()
+        _adapterConfig.value = config
+
+        when {
+            config.autoStartLogging -> {
+                ObdLoggingService.start(context)
+            }
+
+            config.autoConnect -> {
+                obdRepository.connect(config)
+                    .onFailure {
+                        _statusMessage.value = it.message ?: "OBD auto-connect failed"
+                    }
+            }
+        }
+    }
     fun refreshStorageUsage() = viewModelScope.launch {
         _storageUsage.value = obdRepository.getStorageUsage()
     }

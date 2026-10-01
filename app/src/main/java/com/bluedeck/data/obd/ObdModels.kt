@@ -1,6 +1,6 @@
 package com.bluedeck.data.obd
 
-enum class ObdTransportType { BLUETOOTH, WIFI }
+enum class ObdTransportType { BLUETOOTH,BLE, WIFI }
 
 enum class HkmcEvProfileId(val displayName: String, val cellCount: Int) {
     KONA_NIRO_64("Kona / Niro 64 kWh", 96),
@@ -56,9 +56,6 @@ data class ObdSnapshot(
     val cellVoltageDeviationV: Double? = null,
     val frontMotorRpm: Int? = null,
     val rearMotorRpm: Int? = null,
-    val brakeLightOn: Boolean? = null,
-    val headlightOn: Boolean? = null,
-    val lightingSupported: Boolean = true,
     val capturedAt: Long = System.currentTimeMillis()
 )
 
@@ -70,8 +67,7 @@ data class ObdSessionSummary(
     val endedAt: Long?,
     val sampleCount: Int,
     val sizeBytes: Long,
-    val driveFileId: String?,
-    val lightingSupported: Boolean
+    val driveFileId: String?
 )
 
 data class ObdStorageUsage(

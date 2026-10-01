@@ -245,7 +245,7 @@ class VehicleViewModel @Inject constructor(
             loadVehicles()
             delay(750)
             _selectedVehicle.value?.let { selected ->
-                refreshStatusInternal(vehicle = selected, forceFromServer = true, showLoading = false)
+                refreshStatusInternal(vehicle = selected, forceFromServer = false, showLoading = false)
             }
         }
     }

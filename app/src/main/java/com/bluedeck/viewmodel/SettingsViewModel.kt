@@ -108,12 +108,30 @@ class SettingsViewModel @Inject constructor(
         preferencesManager.setWalkAwayLockEnabled(enabled)
     }
 
+    fun setWalkAwayLockEnabled(
+        enabled: Boolean,
+        onComplete: () -> Unit
+    ) = viewModelScope.launch {
+        preferencesManager.setWalkAwayLockEnabled(enabled)
+        onComplete()
+    }
+
     fun setWalkAwayLockDelaySeconds(seconds: Int) = viewModelScope.launch {
         preferencesManager.setWalkAwayLockDelaySeconds(seconds)
     }
 
     fun setWalkAwayBluetoothDevice(name: String, address: String) = viewModelScope.launch {
         preferencesManager.setWalkAwayBluetoothDevice(name, address)
+    }
+
+    fun setWalkAwayBluetoothDeviceAndEnable(
+        name: String,
+        address: String,
+        onComplete: () -> Unit
+    ) = viewModelScope.launch {
+        preferencesManager.setWalkAwayBluetoothDevice(name, address)
+        preferencesManager.setWalkAwayLockEnabled(true)
+        onComplete()
     }
 
     fun clearWalkAwayBluetoothDevice() = viewModelScope.launch {

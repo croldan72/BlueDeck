@@ -181,7 +181,7 @@ data class VehicleListResponse(
 
 data class VehicleDetail(
     @SerializedName("vehicleDetails") val vehicle: Vehicle,
-    @SerializedName("packageDetails") val packageDetails: List<PackageDetail> = emptyList()
+    @SerializedName("packageDetails") val packageDetails: List<PackageDetail>? = null
 )
 
 // ─── Vehicle Status ───────────────────────────────────────────────────────────

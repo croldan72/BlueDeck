@@ -6,6 +6,7 @@ import com.bluedeck.data.obd.db.ObdDatabase
 import com.bluedeck.data.obd.db.ObdSampleEntity
 import com.bluedeck.data.obd.db.ObdSessionEntity
 import com.bluedeck.data.obd.pid.HkmcEvPidEngine
+import com.bluedeck.data.obd.transport.BluetoothLeObdTransport
 import com.bluedeck.data.obd.transport.BluetoothClassicObdTransport
 import com.bluedeck.data.obd.transport.Elm327Client
 import com.bluedeck.data.obd.transport.ObdTransport
@@ -33,6 +34,7 @@ class ObdRepository @Inject constructor(
     private val database: ObdDatabase,
     private val preferencesManager: PreferencesManager,
     private val bluetoothTransport: BluetoothClassicObdTransport,
+    private val bleTransport: BluetoothLeObdTransport,
     private val wifiTransport: WifiObdTransport,
     private val elm327Client: Elm327Client,
     private val pidEngine: HkmcEvPidEngine,
@@ -79,6 +81,13 @@ class ObdRepository @Inject constructor(
                 val address = config.bluetoothAddress ?: error("Bluetooth address required")
                 bluetoothTransport.connect(address)
             }
+
+            ObdTransportType.BLE -> {
+                val address = config.bluetoothAddress ?: error("BLE address required")
+                bleTransport.configure(address)
+                bleTransport.connect()
+            }
+
             ObdTransportType.WIFI -> {
                 wifiTransport.configure(config.wifiHost, config.wifiPort)
                 wifiTransport.connect()
@@ -95,6 +104,7 @@ class ObdRepository @Inject constructor(
         loggingJob?.cancel()
         loggingJob = null
         bluetoothTransport.disconnect()
+        bleTransport.disconnect()
         wifiTransport.disconnect()
         _activeSessionId.value?.let { endSession(it) }
         _connectionState.value = ObdConnectionState.DISCONNECTED
@@ -190,10 +200,23 @@ class ObdRepository @Inject constructor(
                         return
                     }
                 } else {
-                    val snapshot = pidEngine.readFastSnapshot(transport, config.profileId)
-                    _latestSnapshot.value = snapshot
-                    appendSample(sessionId, snapshot)
-                    consecutiveFailures = 0
+                    android.util.Log.d("BlueDeckOBD", "Starting fast snapshot")
+
+                    try {
+                        val snapshot = pidEngine.readFastSnapshot(transport, profile = config.profileId)
+
+                        android.util.Log.d("BlueDeckOBD", "Fast snapshot completed")
+
+                        _latestSnapshot.value = snapshot
+                        appendSample(sessionId, snapshot)
+
+                        android.util.Log.d("BlueDeckOBD", "Sample appended")
+
+                        consecutiveFailures = 0
+                    } catch (e: Exception) {
+                        android.util.Log.e("BlueDeckOBD", "Fast snapshot failed", e)
+                        consecutiveFailures++
+                    }
 
                     val now = System.currentTimeMillis()
                     if (now - lastCellPoll >= 60_000L) {
@@ -235,17 +258,12 @@ class ObdRepository @Inject constructor(
                 cellVoltageAvgV = snapshot.cellVoltageAvgV,
                 cellVoltageDeviationV = snapshot.cellVoltageDeviationV,
                 frontMotorRpm = snapshot.frontMotorRpm,
-                rearMotorRpm = snapshot.rearMotorRpm,
-                brakeLightOn = snapshot.brakeLightOn,
-                headlightOn = snapshot.headlightOn
+                rearMotorRpm = snapshot.rearMotorRpm
             )
         )
         val session = database.sessionDao().getById(sessionId) ?: return
         database.sessionDao().update(
-            session.copy(
-                sampleCount = session.sampleCount + 1,
-                lightingSupported = snapshot.lightingSupported
-            )
+            session.copy(sampleCount = session.sampleCount + 1)
         )
     }
 
@@ -262,12 +280,14 @@ class ObdRepository @Inject constructor(
 
     private fun currentTransport(): ObdTransport? = when {
         bluetoothTransport.isConnected -> bluetoothTransport
+        bleTransport.isConnected -> bleTransport
         wifiTransport.isConnected -> wifiTransport
         else -> null
     }
 
     private fun resolveTransport(config: ObdAdapterConfig): ObdTransport = when (config.transportType) {
         ObdTransportType.BLUETOOTH -> bluetoothTransport
+        ObdTransportType.BLE -> bleTransport
         ObdTransportType.WIFI -> wifiTransport
     }
 
@@ -279,7 +299,6 @@ class ObdRepository @Inject constructor(
         endedAt = endedAt,
         sampleCount = sampleCount,
         sizeBytes = sizeBytes,
-        driveFileId = driveFileId,
-        lightingSupported = lightingSupported
+        driveFileId = driveFileId
     )
 }

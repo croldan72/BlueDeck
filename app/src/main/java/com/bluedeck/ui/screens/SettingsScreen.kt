@@ -584,12 +584,13 @@ fun SettingsScreen(
                                     )) {
                                     openBluetoothPicker()
                                 } else {
-                                    viewModel.setWalkAwayLockEnabled(enabled)
-                                    if (enabled) {
-                                        WalkAwayBluetoothMonitorService.start(context)
-                                    } else {
-                                        WalkAwayBluetoothMonitorService.stop(context)
-                                        WalkAwayLockScheduler.cancel(context)
+                                    viewModel.setWalkAwayLockEnabled(enabled) {
+                                        if (enabled) {
+                                            WalkAwayBluetoothMonitorService.start(context)
+                                        } else {
+                                            WalkAwayBluetoothMonitorService.stop(context)
+                                            WalkAwayLockScheduler.cancel(context)
+                                        }
                                     }
                                 }
                             },
@@ -743,9 +744,12 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        viewModel.setWalkAwayBluetoothDevice(device.name, device.address)
-                                        viewModel.setWalkAwayLockEnabled(true)
-                                        WalkAwayBluetoothMonitorService.start(context)
+                                        viewModel.setWalkAwayBluetoothDeviceAndEnable(
+                                            device.name,
+                                            device.address
+                                        ) {
+                                            WalkAwayBluetoothMonitorService.start(context)
+                                        }
                                         showBluetoothPicker = false
                                     }
                                     .padding(vertical = 12.dp),
@@ -754,9 +758,12 @@ fun SettingsScreen(
                                 RadioButton(
                                     selected = device.address.equals(walkAwayBluetoothAddress, ignoreCase = true),
                                     onClick = {
-                                        viewModel.setWalkAwayBluetoothDevice(device.name, device.address)
-                                        viewModel.setWalkAwayLockEnabled(true)
-                                        WalkAwayBluetoothMonitorService.start(context)
+                                        viewModel.setWalkAwayBluetoothDeviceAndEnable(
+                                            device.name,
+                                            device.address
+                                        ) {
+                                            WalkAwayBluetoothMonitorService.start(context)
+                                        }
                                         showBluetoothPicker = false
                                     }
                                 )

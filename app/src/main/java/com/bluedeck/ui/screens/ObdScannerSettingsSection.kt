@@ -59,35 +59,64 @@ fun ObdScannerSettingsSection(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         val ok = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            grants[Manifest.permission.BLUETOOTH_CONNECT] == true
+                (
+                        grants[Manifest.permission.BLUETOOTH_CONNECT] == true &&
+                                grants[Manifest.permission.BLUETOOTH_SCAN] == true
+                        )
+
         if (ok) showBtPicker = true
     }
 
     LaunchedEffect(Unit) { obdViewModel.refreshStorageUsage() }
 
-    ControlSection(title = "OBD Scanner") {
-        ObdSettingsRow(
-            icon = Icons.Filled.Bluetooth,
-            label = "Transport",
-            value = if (config.transportType == ObdTransportType.BLUETOOTH) "Bluetooth" else "Wi-Fi",
-            onClick = {
-                obdViewModel.setTransportType(
-                    if (config.transportType == ObdTransportType.BLUETOOTH) ObdTransportType.WIFI else ObdTransportType.BLUETOOTH
-                )
-            }
-        )
+    ObdSettingsRow(
+        icon = Icons.Filled.Bluetooth,
+        label = "Transport",
+        value = when (config.transportType) {
+            ObdTransportType.BLUETOOTH -> "Bluetooth"
+            ObdTransportType.BLE -> "Bluetooth LE"
+            ObdTransportType.WIFI -> "Wi-Fi"
+        },
+        onClick = {
+            obdViewModel.setTransportType(
+                when (config.transportType) {
+                    ObdTransportType.BLUETOOTH -> ObdTransportType.BLE
+                    ObdTransportType.BLE -> ObdTransportType.WIFI
+                    ObdTransportType.WIFI -> ObdTransportType.BLUETOOTH
+                }
+            )
+        }
+    )
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
 
-        if (config.transportType == ObdTransportType.BLUETOOTH) {
+    if (
+        config.transportType == ObdTransportType.BLUETOOTH ||
+        config.transportType == ObdTransportType.BLE
+    ) {
             ObdSettingsRow(
                 icon = Icons.Filled.Devices,
                 label = "OBD adapter",
                 value = config.bluetoothName ?: "Choose device",
                 onClick = {
-                    val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                    val needsPermission =
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                (
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.BLUETOOTH_CONNECT
+                                        ) != PackageManager.PERMISSION_GRANTED ||
+                                                ContextCompat.checkSelfPermission(
+                                                    context,
+                                                    Manifest.permission.BLUETOOTH_SCAN
+                                                ) != PackageManager.PERMISSION_GRANTED
+                                        )
                     if (needsPermission) {
-                        btPermissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT))
+                        btPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.BLUETOOTH_CONNECT,
+                                Manifest.permission.BLUETOOTH_SCAN
+                            )
+                        )
                     } else {
                         showBtPicker = true
                     }
@@ -170,7 +199,6 @@ fun ObdScannerSettingsSection(
                 obdViewModel.setAutoStartLogging(it)
             })
         }
-    }
 
     ControlSection(title = "OBD Log Storage") {
         val usageMb = String.format(Locale.US, "%.1f", storageUsage.totalBytes / (1024.0 * 1024.0))
@@ -339,6 +367,10 @@ private fun obdPairedDevices(context: Context): List<ObdPairedDevice> {
     }.sortedBy { it.name.lowercase() }
 }
 
+private data class ObdBleDevice(
+    val name: String,
+    val address: String
+)
 @Composable
 private fun ObdSettingsRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,

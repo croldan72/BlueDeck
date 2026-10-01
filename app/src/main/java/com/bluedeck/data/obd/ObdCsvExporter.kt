@@ -24,8 +24,7 @@ class ObdCsvExporter @Inject constructor() {
             "battery_temp_min_c", "battery_temp_max_c", "battery_temp_avg_c",
             "battery_heater_state", "battery_fan_mode",
             "cell_voltage_min_v", "cell_voltage_max_v", "cell_voltage_avg_v", "cell_voltage_deviation_v",
-            "front_motor_rpm", "rear_motor_rpm",
-            "brake_light_on", "headlight_on"
+            "front_motor_rpm", "rear_motor_rpm"
         ).joinToString(",")
         val rows = samples.map { sample ->
             listOf(
@@ -45,9 +44,7 @@ class ObdCsvExporter @Inject constructor() {
                 sample.cellVoltageAvgV?.toString().orEmpty(),
                 sample.cellVoltageDeviationV?.toString().orEmpty(),
                 sample.frontMotorRpm?.toString().orEmpty(),
-                sample.rearMotorRpm?.toString().orEmpty(),
-                sample.brakeLightOn?.toString().orEmpty(),
-                sample.headlightOn?.toString().orEmpty()
+                sample.rearMotorRpm?.toString().orEmpty()
             ).joinToString(",")
         }
         return (listOf(header) + rows).joinToString("\n")

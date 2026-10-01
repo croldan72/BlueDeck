@@ -112,6 +112,10 @@ fun ObdDiagnosticsScreen(
                     adapterLabel = when (config.transportType) {
                         ObdTransportType.BLUETOOTH ->
                             config.bluetoothName ?: config.bluetoothAddress ?: "No adapter selected"
+
+                        ObdTransportType.BLE ->
+                            config.bluetoothName ?: config.bluetoothAddress ?: "No BLE adapter selected"
+
                         ObdTransportType.WIFI ->
                             "${config.wifiHost}:${config.wifiPort}"
                     },
@@ -153,18 +157,6 @@ fun ObdDiagnosticsScreen(
                     MetricRow("Rear motor RPM", snapshot.rearMotorRpm?.toString() ?: "—")
                 } }
 
-                item { MetricSection("Lighting") {
-                    if (snapshot.lightingSupported) {
-                        MetricRow("Brake lights", snapshot.brakeLightOn?.let { if (it) "On" else "Off" } ?: "—")
-                        MetricRow("Headlights", snapshot.headlightOn?.let { if (it) "On" else "Off" } ?: "—")
-                    } else {
-                        Text(
-                            "Lighting status not available on this vehicle via OBD.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-                } }
             }
 
             item {

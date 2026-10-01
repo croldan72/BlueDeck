@@ -5,5 +5,5 @@ interface ObdTransport {
     suspend fun disconnect()
     val isConnected: Boolean
     suspend fun write(command: String)
-    suspend fun readLine(timeoutMs: Long = 3000L): String?
+    suspend fun readLine(timeoutMs: Long): String?
 }

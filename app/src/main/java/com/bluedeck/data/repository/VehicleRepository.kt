@@ -3108,7 +3108,7 @@ class VehicleRepository @Inject constructor(
                 } else {
                     val listResponse = gson.fromJson(body, VehicleListResponse::class.java)
                     listResponse.vehicles.map { detail ->
-                        var vehicle = detail.vehicle.copy(packageDetails = detail.packageDetails)
+                        var vehicle = detail.vehicle.copy(packageDetails = detail.packageDetails ?: emptyList())
                         if (vehicle.seatConfigurations == null) {
                             val extracted = enrollmentEntryForVin(body, vehicle.vin)?.let { entry ->
                                 extractSeatConfigurationsFromEnrollment(entry)
