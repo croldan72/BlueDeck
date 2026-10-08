@@ -1,6 +1,7 @@
-package com.bluedeck.viewmodel
+﻿package com.bluedeck.viewmodel
 
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bluedeck.data.obd.HkmcEvProfileId
@@ -13,6 +14,8 @@ import com.bluedeck.data.obd.ObdStorageUsage
 import com.bluedeck.data.obd.ObdTransportType
 import com.bluedeck.data.obd.db.ObdSessionEntity
 import com.bluedeck.data.repository.PreferencesManager
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,15 +58,19 @@ class ObdViewModel @Inject constructor(
     val driveLastSyncAt = preferencesManager.obdDriveLastSyncAt
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
-    private val _storageUsage = kotlinx.coroutines.flow.MutableStateFlow(ObdStorageUsage(0, 0))
+    private val _driveAccountEmail = MutableStateFlow<String?>(null)
+    val driveAccountEmail: StateFlow<String?> = _driveAccountEmail.asStateFlow()
+
+    private val _storageUsage = MutableStateFlow(ObdStorageUsage(0, 0))
     val storageUsage: StateFlow<ObdStorageUsage> = _storageUsage
 
-    private val _statusMessage = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage
 
     init {
         refreshStorageUsage()
         reloadAdapterConfig()
+        refreshDriveAccount()
     }
 
     private fun reloadAdapterConfig() = viewModelScope.launch {
@@ -87,8 +94,38 @@ class ObdViewModel @Inject constructor(
             }
         }
     }
+
     fun refreshStorageUsage() = viewModelScope.launch {
         _storageUsage.value = obdRepository.getStorageUsage()
+    }
+
+    fun refreshDriveAccount() = viewModelScope.launch {
+        _driveAccountEmail.value = driveSyncManager.getSignedInAccountEmail()
+    }
+
+    fun handleDriveSignInResult(data: Intent?) {
+        if (data == null) {
+            _statusMessage.value = "Google sign-in cancelled"
+            refreshDriveAccount()
+            return
+        }
+
+        try {
+            val account = GoogleSignIn
+                .getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+
+            _driveAccountEmail.value = account.email
+            _statusMessage.value = account.email?.let {
+                "Signed in to Google as $it"
+            } ?: "Signed in to Google"
+        } catch (e: ApiException) {
+            _statusMessage.value = "Google sign-in failed (${e.statusCode})"
+            refreshDriveAccount()
+        } catch (e: Exception) {
+            _statusMessage.value = e.message ?: "Google sign-in failed"
+            refreshDriveAccount()
+        }
     }
 
     fun connect() = viewModelScope.launch {
@@ -113,22 +150,26 @@ class ObdViewModel @Inject constructor(
         _statusMessage.value = "OBD logging stopped"
     }
 
-    fun exportSession(sessionId: Long, onFilesReady: (java.io.File, java.io.File?) -> Unit) = viewModelScope.launch {
+    fun exportSession(
+        sessionId: Long,
+        onFilesReady: (java.io.File, java.io.File?) -> Unit
+    ) = viewModelScope.launch {
         val files = obdRepository.exportSessionCsv(sessionId, context.cacheDir)
         onFilesReady(files.first, files.second)
     }
 
     fun syncSessionToDrive(sessionId: Long) = viewModelScope.launch {
         driveSyncManager.syncSession(sessionId)
-            .onSuccess { _statusMessage.value = "Uploaded to Google Drive" }
+            .onSuccess { _statusMessage.value = "Uploaded session CSVs to Google Drive" }
             .onFailure { _statusMessage.value = it.message ?: "Drive sync failed" }
     }
 
-    fun signInToDrive(launcher: (android.content.Intent) -> Unit) {
+    fun signInToDrive(launcher: (Intent) -> Unit) {
         if (!driveSyncManager.isConfigured()) {
             _statusMessage.value = "Configure google_drive_web_client_id in strings.xml"
             return
         }
+
         launcher(driveSyncManager.buildSignInClient().signInIntent)
     }
 
@@ -198,8 +239,12 @@ class ObdViewModel @Inject constructor(
     }
 
     fun sessionLabel(session: ObdSessionEntity): String {
-        val start = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
-            .format(java.util.Date(session.startedAt))
+        val start = java.text.SimpleDateFormat(
+            "MMM d, HH:mm",
+            java.util.Locale.getDefault()
+        ).format(java.util.Date(session.startedAt))
+
         return "$start · ${session.sampleCount} samples"
     }
 }
+

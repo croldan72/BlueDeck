@@ -1,4 +1,4 @@
-package com.bluedeck.data.obd
+﻿package com.bluedeck.data.obd
 
 import android.content.Context
 import androidx.hilt.work.HiltWorker
@@ -21,10 +21,19 @@ class ObdDriveSyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val sessionId = inputData.getLong(KEY_SESSION_ID, -1L)
         if (sessionId < 0) return Result.failure()
+
         return driveSyncManager.syncSession(sessionId)
             .fold(
                 onSuccess = { Result.success() },
-                onFailure = { Result.retry() }
+                onFailure = { error ->
+                    when (error.message) {
+                        "Drive sync disabled",
+                        "Google Drive not configured",
+                        "Not signed in to Google" -> Result.success()
+
+                        else -> Result.retry()
+                    }
+                }
             )
     }
 
@@ -35,9 +44,10 @@ class ObdDriveSyncWorker @AssistedInject constructor(
             val request = OneTimeWorkRequestBuilder<ObdDriveSyncWorker>()
                 .setInputData(workDataOf(KEY_SESSION_ID to sessionId))
                 .build()
+
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "obd_drive_sync_$sessionId",
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 request
             )
         }

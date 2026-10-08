@@ -1,4 +1,4 @@
-package com.bluedeck.data.obd
+﻿package com.bluedeck.data.obd
 
 import android.accounts.Account
 import android.content.Context
@@ -19,6 +19,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,6 +31,8 @@ class ObdDriveSyncManager @Inject constructor(
     private val preferencesManager: PreferencesManager,
     private val csvExporter: ObdCsvExporter
 ) {
+
+    private val syncMutex = Mutex()
 
     fun isConfigured(): Boolean {
         val clientId = context.getString(R.string.google_drive_web_client_id)
@@ -53,42 +57,55 @@ class ObdDriveSyncManager @Inject constructor(
         GoogleSignIn.getLastSignedInAccount(context)?.email
     }
 
-    suspend fun syncSession(sessionId: Long): Result<String> = withContext(Dispatchers.IO) {
-        if (!preferencesManager.obdDriveSyncEnabled.first()) {
-            return@withContext Result.failure(IllegalStateException("Drive sync disabled"))
-        }
-        if (!isConfigured()) {
-            return@withContext Result.failure(IllegalStateException("Google Drive not configured"))
-        }
-        val account = GoogleSignIn.getLastSignedInAccount(context)
-            ?: return@withContext Result.failure(IllegalStateException("Not signed in to Google"))
-        val session = database.sessionDao().getById(sessionId)
-            ?: return@withContext Result.failure(IllegalStateException("Session not found"))
-        if (!session.driveFileId.isNullOrBlank()) {
-            return@withContext Result.success(session.driveFileId)
-        }
+    suspend fun syncSession(sessionId: Long): Result<String> = syncMutex.withLock {
+        withContext(Dispatchers.IO) {
+        runCatching {
+            if (!preferencesManager.obdDriveSyncEnabled.first()) {
+                error("Drive sync disabled")
+            }
 
-        val samples = database.sampleDao().getForSession(sessionId)
-        val csv = csvExporter.buildSessionCsv(session, samples)
-        val drive = buildDriveService(
-            account.account ?: return@withContext Result.failure(IllegalStateException("No account"))
-        )
+            if (!isConfigured()) {
+                error("Google Drive not configured")
+            }
 
-        val folderId = findOrCreateFolder(drive)
-        val metadata = File().apply {
-            name = csvExporter.sessionFileName(session)
-            parents = listOf(folderId)
-            mimeType = "text/csv"
+            val signedInAccount = GoogleSignIn.getLastSignedInAccount(context)
+                ?: error("Not signed in to Google")
+
+            val androidAccount = signedInAccount.account
+                ?: error("Google account is unavailable")
+
+            val session = database.sessionDao().getById(sessionId)
+                ?: error("Session not found")
+
+            val drive = buildDriveService(androidAccount)
+            val folderId = findOrCreateObdLogsFolder(drive)
+
+            val samples = database.sampleDao().getForSession(sessionId)
+            val mainFileId = uploadCsvIfMissing(
+                drive = drive,
+                folderId = folderId,
+                fileName = csvExporter.sessionFileName(session),
+                content = csvExporter.buildSessionCsv(session, samples)
+            )
+
+            val cellSnapshots = database.cellSnapshotDao().getAllForSession(sessionId)
+            if (cellSnapshots.isNotEmpty()) {
+                uploadCsvIfMissing(
+                    drive = drive,
+                    folderId = folderId,
+                    fileName = csvExporter.cellsFileName(session),
+                    content = csvExporter.buildCellsCsv(cellSnapshots)
+                )
+            }
+
+            if (session.driveFileId != mainFileId) {
+                database.sessionDao().update(session.copy(driveFileId = mainFileId))
+            }
+
+            preferencesManager.setObdDriveLastSyncAt(System.currentTimeMillis())
+            mainFileId
         }
-        val uploaded = drive.files().create(
-            metadata,
-            ByteArrayContent("text/csv", csv.toByteArray(Charsets.UTF_8))
-        ).setFields("id").execute()
-
-        val fileId = uploaded.id
-        database.sessionDao().update(session.copy(driveFileId = fileId))
-        preferencesManager.setObdDriveLastSyncAt(System.currentTimeMillis())
-        Result.success(fileId)
+        }
     }
 
     private fun buildDriveService(account: Account): Drive {
@@ -97,6 +114,7 @@ class ObdDriveSyncManager @Inject constructor(
             listOf(DriveScopes.DRIVE_FILE)
         )
         credential.selectedAccount = account
+
         return Drive.Builder(
             NetHttpTransport(),
             GsonFactory.getDefaultInstance(),
@@ -106,23 +124,114 @@ class ObdDriveSyncManager @Inject constructor(
             .build()
     }
 
-    private fun findOrCreateFolder(drive: Drive): String {
-        val query = "mimeType='application/vnd.google-apps.folder' and name='OBD Logs' and trashed=false"
-        val existing = drive.files().list().setQ(query).setSpaces("drive").setFields("files(id)").execute()
-        existing.files?.firstOrNull()?.id?.let { return it }
+    private fun findOrCreateObdLogsFolder(drive: Drive): String {
+        val blueDeckFolderId = findFolder(
+            drive = drive,
+            name = "BlueDeck",
+            parentId = "root"
+        ) ?: createFolder(
+            drive = drive,
+            name = "BlueDeck",
+            parentId = "root"
+        )
 
-        val bluedeckFolder = drive.files().list()
-            .setQ("mimeType='application/vnd.google-apps.folder' and name='BlueDeck' and trashed=false")
+        return findFolder(
+            drive = drive,
+            name = "OBD Logs",
+            parentId = blueDeckFolderId
+        ) ?: createFolder(
+            drive = drive,
+            name = "OBD Logs",
+            parentId = blueDeckFolderId
+        )
+    }
+
+    private fun findFolder(
+        drive: Drive,
+        name: String,
+        parentId: String
+    ): String? {
+        val safeName = escapeDriveQueryValue(name)
+
+        val query =
+            "mimeType='application/vnd.google-apps.folder' and " +
+                "name='$safeName' and " +
+                "'$parentId' in parents and trashed=false"
+
+        return drive.files()
+            .list()
+            .setQ(query)
             .setSpaces("drive")
-            .setFields("files(id)")
+            .setFields("files(id,name)")
             .execute()
-            .files?.firstOrNull()?.id
+            .files
+            ?.firstOrNull()
+            ?.id
+    }
+
+    private fun createFolder(
+        drive: Drive,
+        name: String,
+        parentId: String
+    ): String {
+        val metadata = File().apply {
+            this.name = name
+            mimeType = "application/vnd.google-apps.folder"
+            parents = listOf(parentId)
+        }
+
+        return drive.files()
+            .create(metadata)
+            .setFields("id")
+            .execute()
+            .id
+    }
+
+    private fun uploadCsvIfMissing(
+        drive: Drive,
+        folderId: String,
+        fileName: String,
+        content: String
+    ): String {
+        val safeName = escapeDriveQueryValue(fileName)
+
+        val existing = drive.files()
+            .list()
+            .setQ(
+                "name='$safeName' and " +
+                    "'$folderId' in parents and " +
+                    "trashed=false"
+            )
+            .setSpaces("drive")
+            .setFields("files(id,name)")
+            .execute()
+            .files
+            ?.firstOrNull()
+
+        if (existing?.id != null) {
+            return existing.id
+        }
 
         val metadata = File().apply {
-            name = "OBD Logs"
-            mimeType = "application/vnd.google-apps.folder"
-            bluedeckFolder?.let { parents = listOf(it) }
+            name = fileName
+            parents = listOf(folderId)
+            mimeType = "text/csv"
         }
-        return drive.files().create(metadata).setFields("id").execute().id
+
+        return drive.files()
+            .create(
+                metadata,
+                ByteArrayContent(
+                    "text/csv",
+                    content.toByteArray(Charsets.UTF_8)
+                )
+            )
+            .setFields("id")
+            .execute()
+            .id
     }
+
+    private fun escapeDriveQueryValue(value: String): String =
+        value.replace("\\", "\\\\").replace("'", "\\'")
 }
+

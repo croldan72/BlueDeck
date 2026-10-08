@@ -1,4 +1,4 @@
-package com.bluedeck.ui.screens
+﻿package com.bluedeck.ui.screens
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
@@ -43,6 +43,7 @@ fun ObdScannerSettingsSection(
     val driveSyncEnabled by obdViewModel.driveSyncEnabled.collectAsStateWithLifecycle()
     val driveLastSyncAt by obdViewModel.driveLastSyncAt.collectAsStateWithLifecycle()
 
+    val driveAccountEmail by obdViewModel.driveAccountEmail.collectAsStateWithLifecycle()
     var showBtPicker by remember { mutableStateOf(false) }
     var showProfilePicker by remember { mutableStateOf(false) }
     var showRetentionPicker by remember { mutableStateOf(false) }
@@ -53,7 +54,9 @@ fun ObdScannerSettingsSection(
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { /* account available via getLastSignedInAccount */ }
+    ) { result ->
+        obdViewModel.handleDriveSignInResult(result.data)
+    }
 
     val btPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -67,7 +70,10 @@ fun ObdScannerSettingsSection(
         if (ok) showBtPicker = true
     }
 
-    LaunchedEffect(Unit) { obdViewModel.refreshStorageUsage() }
+    LaunchedEffect(Unit) {
+        obdViewModel.refreshStorageUsage()
+        obdViewModel.refreshDriveAccount()
+    }
 
     ObdSettingsRow(
         icon = Icons.Filled.Bluetooth,
@@ -203,7 +209,7 @@ fun ObdScannerSettingsSection(
     ControlSection(title = "OBD Log Storage") {
         val usageMb = String.format(Locale.US, "%.1f", storageUsage.totalBytes / (1024.0 * 1024.0))
         Text(
-            "${storageUsage.sessionCount} sessions · $usageMb MB",
+            "${storageUsage.sessionCount} sessions Â· $usageMb MB",
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
@@ -236,6 +242,12 @@ fun ObdScannerSettingsSection(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Upload session CSVs", style = MaterialTheme.typography.bodyMedium)
+
+                Text(
+                    driveAccountEmail?.let { "Signed in: $it" } ?: "Not signed in",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
                 if (driveLastSyncAt > 0) {
                     val whenText = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(driveLastSyncAt))
                     Text("Last sync: $whenText", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
@@ -243,8 +255,18 @@ fun ObdScannerSettingsSection(
             }
             Switch(checked = driveSyncEnabled, onCheckedChange = { obdViewModel.setDriveSyncEnabled(it) })
         }
-        TextButton(onClick = { obdViewModel.signInToDrive { googleSignInLauncher.launch(it) } }) {
-            Text("Sign in to Google")
+        TextButton(
+            onClick = {
+                obdViewModel.signInToDrive { googleSignInLauncher.launch(it) }
+            }
+        ) {
+            Text(
+                if (driveAccountEmail == null) {
+                    "Sign in to Google"
+                } else {
+                    "Change Google account"
+                }
+            )
         }
     }
 
@@ -394,3 +416,6 @@ private fun ObdSettingsRow(
         Icon(Icons.Filled.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
     }
 }
+
+
+
